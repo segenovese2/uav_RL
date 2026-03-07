@@ -108,7 +108,10 @@ class QLearningAgent:
     # Saving & Loading
     # ------------------------------------------------------------------
     def save(self, filepath):
-        np.save(filepath, self.q_table)
+        """Save Q-table using compressed format for faster I/O."""
+        np.savez_compressed(filepath, q_table=self.q_table)
 
     def load(self, filepath):
-        self.q_table = np.load(filepath)
+        """Load Q-table from compressed format."""
+        data = np.load(filepath)
+        self.q_table = data['q_table']
