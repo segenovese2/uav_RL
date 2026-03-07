@@ -119,10 +119,10 @@ This loads the saved model, runs one episode with Pygame visualisation, and prin
 
 ### Plotting Results
 
-After training, open `plot_results.py` and select which agents to plot:
+After training, open `plot_results.py` and select which agent to plot:
 
 ```python
-AGENT_TYPES = ["PPO", "A2C"]  # Any combination of trained agents
+AGENT_TYPES = ["PPO", "A2C"]
 ```
 
 Then run:
