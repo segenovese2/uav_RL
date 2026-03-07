@@ -38,13 +38,13 @@ The UAV is tasked with navigating a grid world to maximise the sum-rate (communi
 │   ├── q_learning_agent.py      # Tabular Q-Learning agent
 │   └── __init__.py
 ├── environments/
-│   ├── uav_env.py              # Base environment
-│   └── uav_env_improved.py     # Improved Gymnasium environment
-├── agent_train.py                # Training script (SB3 + Q-Learning)
-├── agent_test.py                  # Testing / visualisation script
+│   ├── uav_env.py               # Base environment
+│   └── uav_env_improved.py      # Improved Gymnasium environment
+├── agent_train.py               # Training script (SB3 + Q-Learning)
+├── agent_test.py                # Testing / visualisation script
 ├── plot_results.py              # Learning curve plotter
 ├── wrappers.py                  # Continuous-to-discrete action wrapper (for SAC)
-├── requirements.txt
+├── requirements.txt             # Requirements before running files
 └── README.md
 ```
 
@@ -143,7 +143,7 @@ This produces `training_learning_curves.png` showing raw and smoothed reward cur
 |----------|-------|
 | Grid size | 15x15 |
 | Action space | Discrete(4) — up, down, left, right |
-| Observation space | Box(5,) — UAV position, user distances, step ratio |
+| Observation space | Box(5) — UAV position, user distances, step ratio |
 | Max steps per episode | 50 |
 | UAV flight height | 5.0 (grid units) |
 
@@ -165,7 +165,7 @@ Extends the base environment with:
 - **Navigation shaping** — per-step progress reward for closing distance to the current target
 - **Two-phase mission** — Phase 0: reach midpoint; Phase 1: return to start
 - **Milestone bonuses** — one-time reward on reaching the midpoint (+8) and completing the return (+12)
-- **Extended observation** — Box(8,) adds target coordinates and phase flag so the policy can condition on which leg it is flying
+- **Extended observation** — Box(8) adds target coordinates and phase flag so the policy can condition on which leg it is flying
 
 Shaping rewards are intentionally kept in the same scale as the comms reward so they guide without dominating.
 
