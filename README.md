@@ -41,8 +41,8 @@ The UAV is tasked with navigating a grid world to maximise the sum-rate (communi
 │   └── uav_env.py               # Custom Gymnasium environment
 ├── uav_env.py                   # Base environment
 ├── uav_env_improved.py          # Improved environment with navigation shaping
-├── test_train.py                # Training script (SB3 + Q-Learning)
-├── sb3_test.py                  # Testing / visualisation script
+├── agent_train.py                # Training script (SB3 + Q-Learning)
+├── agent_test.py                  # Testing / visualisation script
 ├── plot_results.py              # Learning curve plotter
 ├── wrappers.py                  # Continuous-to-discrete action wrapper (for SAC)
 ├── requirements.txt
@@ -76,7 +76,7 @@ pip install torch gymnasium stable-baselines3 numpy matplotlib pygame
 
 ### Training
 
-Open `test_train.py` and set the agent you want to train:
+Open `agent_train.py` and set the agent you want to train:
 
 ```python
 AGENT_TYPE = "PPO"  # Options: "QLEARNING", "DQN", "PPO", "SAC", "A2C"
@@ -85,7 +85,7 @@ AGENT_TYPE = "PPO"  # Options: "QLEARNING", "DQN", "PPO", "SAC", "A2C"
 Then run:
 
 ```bash
-python test_train.py
+python agent_train.py
 ```
 
 Training outputs saved to the working directory:
@@ -104,7 +104,7 @@ train(AGENT_TYPE, num_episodes=5000)
 
 ### Testing
 
-Open `sb3_test.py` and set the agent to test:
+Open `agent_test.py` and set the agent to test:
 
 ```python
 AGENT_TYPE = "PPO"  # Options: "QLEARNING", "DQN", "PPO", "SAC", "A2C"
@@ -113,7 +113,7 @@ AGENT_TYPE = "PPO"  # Options: "QLEARNING", "DQN", "PPO", "SAC", "A2C"
 Then run:
 
 ```bash
-python sb3_test.py
+python agent_test.py
 ```
 
 This loads the saved model, runs one episode with Pygame visualisation, and prints the total reward and step count.
@@ -254,9 +254,3 @@ SB3 agents (DQN, PPO, A2C, SAC) are implemented using [Stable Baselines3](https:
 - Bayerlein et al. (2018), "Trajectory Optimization for Autonomous Flying Base Station via Reinforcement Learning" — reward model basis
 - Stable Baselines3 documentation: https://stable-baselines3.readthedocs.io/
 - Gymnasium documentation: https://gymnasium.farama.org/
-
----
-
-## License
-
-This project is for educational purposes.
