@@ -40,14 +40,14 @@ pip install torch gymnasium stable-baselines3 numpy matplotlib pygame
 
 ### 1. Training an Agent
 
-Edit `test_train.py` to select which agent to train:
+Edit `agent_train.py` to select which agent to train:
 ```python
 AGENT_TYPE = "PPO"  # Options: "QLEARNING", "DQN", "PPO", "SAC", "A2C"
 ```
 
 Then run:
 ```bash
-python test_train.py
+python agent_train.py
 ```
 
 Training outputs:
@@ -56,21 +56,21 @@ Training outputs:
 - `trained_q_learning.npy`       - Q-table (Q-Learning only)
 
 By default, training runs for 30,000 episodes. You can change this by editing the
-bottom of `test_train.py`:
+bottom of `agent_train.py`:
 ```python
 train(AGENT_TYPE, num_episodes=30000)
 ```
 
 ### 2. Testing a Trained Agent
 
-Edit `sb3_test.py` to select which agent to test:
+Edit `agent_test.py` to select which agent to test:
 ```python
 AGENT_TYPE = "PPO"  # Options: "QLEARNING", "DQN", "PPO", "SAC", "A2C"
 ```
 
 Then run:
 ```bash
-python sb3_test.py
+python agent_test.py
 ```
 
 The agent will run one episode with visualization showing the UAV trajectory.
@@ -187,12 +187,12 @@ continuous action output to the environment's discrete action space.
 
 ## Key Files Explained
 
-### `test_train.py`
+### `agent_train.py`
 Main training script. Handles agent initialisation, the episode loop, model
 saving, and logging via TrackingCallback (for SB3 agents) or a manual loop
 (for Q-Learning).
 
-### `sb3_test.py`
+### `agent_test.py`
 Loads a trained model and runs a single visualised episode. Works with all
 agent types including Q-Learning.
 
