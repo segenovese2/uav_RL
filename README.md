@@ -38,9 +38,8 @@ The UAV is tasked with navigating a grid world to maximise the sum-rate (communi
 │   ├── q_learning_agent.py      # Tabular Q-Learning agent
 │   └── __init__.py
 ├── environments/
-│   └── uav_env.py               # Custom Gymnasium environment
-├── uav_env.py                   # Base environment
-├── uav_env_improved.py          # Improved environment with navigation shaping
+│   ├── uav_env.py              # Base environment
+│   └── uav_env_improved.py     # Improved Gymnasium environment
 ├── agent_train.py                # Training script (SB3 + Q-Learning)
 ├── agent_test.py                  # Testing / visualisation script
 ├── plot_results.py              # Learning curve plotter
