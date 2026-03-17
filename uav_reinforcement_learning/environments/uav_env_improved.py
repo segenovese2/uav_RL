@@ -20,23 +20,11 @@ class UAVEnv(gym.Env):
         stochastic_fading: bool = True,
         uav_height: float = 5.0,
         midpoint: Optional[np.ndarray] = None,
-        # --- Shaping params, intentionally kept in the same scale as sum_rate ---
-        # sum_rate typically ranges 5-9 bits/s/Hz in this environment.
-        # progress_scale: reward per grid-cell of distance closed toward target.
-        #   ~0.4 means closing 1 cell ~= 5% of a typical comms step reward.
-        #   Large enough to guide, small enough not to override comms quality.
-        progress_scale: float = 0.4,
-        # return_progress_scale: MUCH higher during return phase to force going home.
-        #   Without this, agent perfectly content oscillating at good comms spot.
-        #   ~2.0 guides home slowly while still valuing comms rewards during return.
-        return_progress_scale: float = 5.0,
-        # midpoint_bonus: one-time reward for reaching the midpoint.
-        #   Sized as roughly one strong comms step (~8 bits/s/Hz).
+        progress_scale: float = 2.0,
+        return_progress_scale: float = 15.0,
         midpoint_bonus: float = 25.0,
-        # return_bonus: one-time reward for completing the return leg.
-        #   MUCH larger to incentivize returning home within 50-step limit.
+        dwell_bonus_per_step: float = 1.0,
         return_bonus: float = 100.0,
-        # How close (grid cells) counts as "reached" for milestone triggers.
         progress_radius: float = 1.5,
     ):
         super(UAVEnv, self).__init__()
@@ -49,6 +37,7 @@ class UAVEnv(gym.Env):
         self.start_pos = np.array([0, 0])
         self.goal_pos = np.array([0, 0])
 
+        # Midpoint computed from actual user positions
         users = self._create_users()
         self.midpoint = np.array(midpoint) if midpoint is not None else np.array([
             (users[0][0] + users[1][0]) / 2,
@@ -67,12 +56,14 @@ class UAVEnv(gym.Env):
 
         self.progress_scale = progress_scale
         self.midpoint_bonus = midpoint_bonus
+        self.dwell_bonus_per_step = dwell_bonus_per_step
         self.return_bonus = return_bonus
         self.return_progress_scale = return_progress_scale
 
         self.action_space = spaces.Discrete(4)
-        # Observation gains 3 new dims over original: target_x, target_y, phase flag
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(8,), dtype=np.float32)
+        # 9 dims: original 8 + steps_remaining_ratio
+        # phase_flag normalised to [0, 0.5, 1.0] across 3 phases
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(9,), dtype=np.float32)
 
         self.obstacles = self._create_obstacles()
         self.users = self._create_users()
@@ -81,8 +72,12 @@ class UAVEnv(gym.Env):
         self.current_pos = None
         self.trajectory = []
         self.steps = 0
+        # phase 0: navigate to midpoint
+        # phase 1: dwell at midpoint
+        # phase 2: return to start
         self.phase = 0
         self._prev_dist = None
+        self._dwell_count = 0
 
         self.screen = None
         self.clock = None
@@ -150,11 +145,18 @@ class UAVEnv(gym.Env):
         self.current_pos = self.start_pos.copy()
         self.steps = 0
         self.phase = 0
+        self._dwell_count = 0
         self.trajectory = [self.current_pos.copy()]
         self._prev_dist = float(np.linalg.norm(self.current_pos - self.midpoint))
         return self._get_observation(), {}
 
     def step(self, action: int):
+        # Safe coercion -- handles numpy scalars and SAC continuous arrays
+        if hasattr(action, '__len__'):
+            action = int(np.argmax(action))
+        else:
+            action = int(action)
+
         self.steps += 1
         new_pos = self.current_pos.copy()
 
@@ -166,18 +168,17 @@ class UAVEnv(gym.Env):
         hit_obstacle = list(new_pos) in self.obstacles
 
         if hit_obstacle:
-            # Unchanged from original
             reward = -5.0
             sum_rate = 0.0
         else:
             self.current_pos = new_pos
             self.trajectory.append(self.current_pos.copy())
 
-            # Original comms reward, completely unchanged
+            # Base comms reward -- identical to original env
             sum_rate, _ = self._calculate_reward()
             reward = sum_rate
 
-            # Additive navigation shaping on top, same reward scale
+            # Additive navigation shaping on top
             reward += self._navigation_shaping()
 
         truncated = self.steps >= self.max_steps
@@ -188,6 +189,7 @@ class UAVEnv(gym.Env):
             'trajectory': self.trajectory.copy(),
             'steps': self.steps,
             'phase': self.phase,
+            'dwell_count': self._dwell_count,
             'hit_obstacle': hit_obstacle,
             'communication_quality': self._get_communication_quality(),
             'at_midpoint': self._at_midpoint(),
@@ -201,37 +203,48 @@ class UAVEnv(gym.Env):
     #  NAVIGATION SHAPING                                                  #
     # ------------------------------------------------------------------ #
     def _navigation_shaping(self) -> float:
-        """
-        Additive reward on top of raw sum_rate, kept in the same scale.
-
-        Per-step progress: progress_scale * (cells closed toward target)
-          - 1 cell closer  -> +0.4  (~5% of a typical comms step)
-          - 1 cell further -> -0.4  (mild deterrent, won't dominate comms)
-        
-        During RETURN phase: use moderate progress scale to guide home without dominating.
-          - 1 cell closer to start -> +2.0  (guides home but comms rewards still matter)
-          - Agent stays at midpoint collecting comms, then gradually returns near step 50.
-
-        Milestones are sized as 1-2 strong comms steps so the agent
-        notices them without them swamping the comms learning signal.
-        """
         shaping = 0.0
+        steps_remaining = self.max_steps - self.steps
 
-        target = self.midpoint if self.phase == 0 else self.start_pos
-        current_dist = float(np.linalg.norm(self.current_pos - target))
+        if self.phase == 0:
+            # Navigate to midpoint
+            current_dist = float(np.linalg.norm(self.current_pos - self.midpoint))
+            shaping += self.progress_scale * (self._prev_dist - current_dist)
+            self._prev_dist = current_dist
 
-        # Use aggressive progress scale during return phase
-        scale = self.progress_scale if self.phase == 0 else self.return_progress_scale
-        shaping += scale * (self._prev_dist - current_dist)
-        self._prev_dist = current_dist
+            if self._at_midpoint():
+                shaping += self.midpoint_bonus
+                self.phase = 1
+                self._dwell_count = 0
 
-        if self.phase == 0 and self._at_midpoint():
-            shaping += self.midpoint_bonus
-            self.phase = 1
-            self._prev_dist = float(np.linalg.norm(self.current_pos - self.start_pos))
+        elif self.phase == 1:
+            # Dwell at midpoint until budget forces return.
+            # steps_needed uses 1.5x straight-line distance as path estimate
+            # plus a small buffer, ensuring the agent leaves with enough time.
+            dist_to_start = float(np.linalg.norm(self.current_pos - self.start_pos))
+            steps_needed_to_return = int(math.ceil(dist_to_start * 1.5)) + 3
+            must_leave = steps_remaining <= steps_needed_to_return
 
-        elif self.phase == 1 and self._at_start():
-            shaping += self.return_bonus
+            # Always dwell for at least 5 steps before must_leave can trigger
+            if must_leave and self._dwell_count >= 5:
+                self.phase = 2
+                self._prev_dist = dist_to_start
+            else:
+                if self._at_midpoint():
+                    self._dwell_count += 1
+                    shaping += self.dwell_bonus_per_step
+                else:
+                    # Drifting resets the counter -- must dwell consecutively
+                    self._dwell_count = 0
+
+        elif self.phase == 2:
+            # Return to start
+            current_dist = float(np.linalg.norm(self.current_pos - self.start_pos))
+            shaping += self.return_progress_scale * (self._prev_dist - current_dist)
+            self._prev_dist = current_dist
+
+            if self._at_start():
+                shaping += self.return_bonus
 
         return shaping
 
@@ -252,15 +265,25 @@ class UAVEnv(gym.Env):
         user2_dist = np.linalg.norm(self.current_pos - np.array(self.users[1])) / (self.grid_size * 1.5)
         step_ratio = self.steps / self.max_steps
 
-        # Phase target exposed to policy so it can condition on which leg it's on
-        target = self.midpoint if self.phase == 0 else self.start_pos
+        # Target position changes per phase
+        if self.phase == 0 or self.phase == 1:
+            target = self.midpoint
+        else:
+            target = self.start_pos
+
         target_x = target[0] / (self.grid_size - 1)
         target_y = target[1] / (self.grid_size - 1)
-        phase_flag = float(self.phase)  # 0.0 or 1.0
+
+        # Normalised phase: 0.0, 0.5, 1.0
+        phase_flag = float(self.phase) / 2.0
+
+        # Steps remaining ratio -- critical for dwell phase so agent knows
+        # when it needs to leave to make it back in time
+        steps_remaining_ratio = (self.max_steps - self.steps) / self.max_steps
 
         return np.array(
             [uav_x, uav_y, user1_dist, user2_dist, step_ratio,
-             target_x, target_y, phase_flag],
+             target_x, target_y, phase_flag, steps_remaining_ratio],
             dtype=np.float32
         )
 
@@ -287,7 +310,15 @@ class UAVEnv(gym.Env):
         return float(sum_rate), False
 
     def _calculate_final_reward(self):
-        return 0.0
+        # Penalise agents that never reach the midpoint -- prevents camping
+        # near a user. Only fires if the agent failed -- working agents
+        # reach phase 1 or 2 and are unaffected by the phase 0 penalty.
+        if self.phase == 0:
+            return -200.0
+        elif self.phase == 1:
+            return -50.0
+        else:
+            return 0.0
 
     # ------------------------------------------------------------------ #
     #  COMM QUALITY HELPERS (unchanged)                                    #
@@ -352,8 +383,8 @@ class UAVEnv(gym.Env):
             rect = pygame.Rect(obs[0]*self.cell_size, (self.grid_size-1-obs[1])*self.cell_size, self.cell_size, self.cell_size)
             pygame.draw.rect(self.screen, (80,80,80), rect)
 
-        mx = self.midpoint[0]*self.cell_size + self.cell_size//2
-        my = (self.grid_size-1-self.midpoint[1])*self.cell_size + self.cell_size//2
+        mx = int(self.midpoint[0]*self.cell_size + self.cell_size//2)
+        my = int((self.grid_size-1-self.midpoint[1])*self.cell_size + self.cell_size//2)
         pygame.draw.circle(self.screen, (0,200,100), (mx, my), 8, 3)
         mid_label = self.font.render("M", True, (0,150,80))
         self.screen.blit(mid_label, mid_label.get_rect(center=(mx, my)))
@@ -373,11 +404,19 @@ class UAVEnv(gym.Env):
 
         ux = self.current_pos[0]*self.cell_size + self.cell_size//2
         uy = (self.grid_size-1-self.current_pos[1])*self.cell_size + self.cell_size//2
-        uav_colour = (255,165,0) if self.phase == 0 else (200,0,200)
-        pygame.draw.circle(self.screen, uav_colour, (ux, uy), 8)
+        phase_colours = {0: (255,165,0), 1: (0,200,100), 2: (200,0,200)}
+        pygame.draw.circle(self.screen, phase_colours[self.phase], (ux, uy), 8)
 
-        phase_str = "Phase 0: -> Midpoint" if self.phase == 0 else "Phase 1: -> Start"
-        info_surf = self.font.render(f"Step {self.steps}/{self.max_steps}  |  {phase_str}", True, (0,0,0))
+        steps_remaining = self.max_steps - self.steps
+        phase_labels = {
+            0: "Phase 0: -> Midpoint",
+            1: f"Phase 1: Dwell ({self._dwell_count} steps | {steps_remaining} remaining)",
+            2: "Phase 2: -> Start",
+        }
+        info_surf = self.font.render(
+            f"Step {self.steps}/{self.max_steps}  |  {phase_labels[self.phase]}",
+            True, (0,0,0)
+        )
         self.screen.blit(info_surf, (10, 10))
 
         pygame.display.flip()
