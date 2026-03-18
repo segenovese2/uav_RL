@@ -247,11 +247,7 @@ def train(agent_type, env_type, num_episodes):
     # SB3 AGENTS
     # ================================================================
     else:
-        # DQN gets a larger timestep budget to compensate for n_envs=1
-        if agent_type == "DQN":
-            num_timesteps = num_episodes * 50 * 8
-        else:
-            num_timesteps = num_episodes * 50
+        num_timesteps = num_episodes * 50
 
         n_envs = 8 if agent_type in ("A2C", "PPO", "SAC") else 1
 
