@@ -1,41 +1,110 @@
 import os
+import sys
+import tkinter as tk
+from tkinter import ttk, messagebox
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from stable_baselines3 import DQN, PPO, SAC, A2C
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
 from agents.q_learning_agent import QLearningAgent
 from agents.wrappers import ContinuousToDiscreteWrapper
 
-# ============================
-# SELECT Environment
-# ============================
-ENV_TYPE = "improved"  # Options: "original", "improved"
-# ============================
 
-# ============================
-# SELECT AGENT HERE
-# ============================
-AGENT_TYPE = "SAC"  # Options: "QLEARNING", "DQN", "PPO", "SAC", "A2C"
-# ============================
+# ------------------------------------------------------------------ #
+#  SELECTION DIALOG                                                    #
+# ------------------------------------------------------------------ #
 
-if ENV_TYPE == "original":
-    from environments.uav_env import UAVEnv
-elif ENV_TYPE == "improved":
-    from environments.uav_env_improved import UAVEnv
-else:
-    raise ValueError("ENV_TYPE must be 'original' or 'improved'")
+def show_selection_dialog():
+    """
+    Opens a tkinter window letting the user choose environment, agent,
+    and number of training episodes before training begins.
+    Returns (env_type, agent_type, num_episodes) or raises SystemExit
+    if the user closes the window without confirming.
+    """
+    root = tk.Tk()
+    root.title("UAV Training Setup")
+    root.resizable(False, False)
 
-# Results folder: Results/original_env/agentname_results/
-#              or Results/improved_env/agentname_results/
+    # Centre the window
+    root.update_idletasks()
+    w, h = 340, 240
+    x = (root.winfo_screenwidth() // 2) - (w // 2)
+    y = (root.winfo_screenheight() // 2) - (h // 2)
+    root.geometry(f"{w}x{h}+{x}+{y}")
+
+    pad = {"padx": 12, "pady": 6}
+
+    # Environment
+    tk.Label(root, text="Environment:", font=("Segoe UI", 10, "bold")).grid(
+        row=0, column=0, sticky="w", **pad)
+    env_var = tk.StringVar(value="improved")
+    env_combo = ttk.Combobox(root, textvariable=env_var, state="readonly", width=18,
+                              values=["original", "improved"])
+    env_combo.grid(row=0, column=1, **pad)
+
+    # Agent
+    tk.Label(root, text="Agent:", font=("Segoe UI", 10, "bold")).grid(
+        row=1, column=0, sticky="w", **pad)
+    agent_var = tk.StringVar(value="SAC")
+    agent_combo = ttk.Combobox(root, textvariable=agent_var, state="readonly", width=18,
+                                values=["QLEARNING", "DQN", "PPO", "SAC", "A2C"])
+    agent_combo.grid(row=1, column=1, **pad)
+
+    # Episodes
+    tk.Label(root, text="Episodes:", font=("Segoe UI", 10, "bold")).grid(
+        row=2, column=0, sticky="w", **pad)
+    episodes_var = tk.StringVar(value="30000")
+    episodes_entry = ttk.Entry(root, textvariable=episodes_var, width=20)
+    episodes_entry.grid(row=2, column=1, **pad)
+
+    result = {}
+
+    def on_confirm():
+        try:
+            episodes = int(episodes_var.get())
+            if episodes <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Episodes must be a positive integer.")
+            return
+        result["env_type"]    = env_var.get()
+        result["agent_type"]  = agent_var.get()
+        result["num_episodes"] = episodes
+        root.destroy()
+
+    def on_close():
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", on_close)
+
+    ttk.Button(root, text="Start Training", command=on_confirm).grid(
+        row=4, column=0, columnspan=2, pady=10)
+
+    root.mainloop()
+
+    if not result:
+        print("Training cancelled.")
+        sys.exit(0)
+
+    return result["env_type"], result["agent_type"], result["num_episodes"]
+
+
+# ------------------------------------------------------------------ #
+#  HELPERS                                                             #
+# ------------------------------------------------------------------ #
+
 def get_results_dir(agent_type, env_type):
-    folder = os.path.join(
-        "Results",
-        f"{env_type}_env",
-        f"{agent_type.lower()}_results"
-    )
+    folder = os.path.join("Results", f"{env_type}_env", f"{agent_type.lower()}_results")
     os.makedirs(folder, exist_ok=True)
     return folder
 
+
+# ------------------------------------------------------------------ #
+#  CALLBACK                                                            #
+# ------------------------------------------------------------------ #
 
 class TrackingCallback(BaseCallback):
     """
@@ -47,22 +116,21 @@ class TrackingCallback(BaseCallback):
         self.n_envs = n_envs
         self.print_every = print_every
 
-        self.episode_rewards = []
+        self.episode_rewards  = []
         self.episode_sum_rates = []
 
-        # accumulators per env
-        self._current_reward = np.zeros(n_envs)
+        self._current_reward   = np.zeros(n_envs)
         self._current_sum_rate = np.zeros(n_envs)
-        self._current_steps = np.zeros(n_envs, dtype=int)
+        self._current_steps    = np.zeros(n_envs, dtype=int)
 
     def _on_step(self):
         rewards = self.locals["rewards"]
-        infos = self.locals["infos"]
-        dones = self.locals["dones"]
+        infos   = self.locals["infos"]
+        dones   = self.locals["dones"]
 
         for idx in range(self.n_envs):
-            self._current_reward[idx] += rewards[idx]
-            self._current_steps[idx] += 1
+            self._current_reward[idx]   += rewards[idx]
+            self._current_steps[idx]    += 1
             if "sum_rate" in infos[idx]:
                 self._current_sum_rate[idx] += infos[idx]["sum_rate"]
 
@@ -73,26 +141,38 @@ class TrackingCallback(BaseCallback):
                     float(self._current_sum_rate[idx]) / steps
                 )
 
-                self._current_reward[idx] = 0
+                self._current_reward[idx]   = 0
                 self._current_sum_rate[idx] = 0
-                self._current_steps[idx] = 0
+                self._current_steps[idx]    = 0
 
                 n = len(self.episode_rewards)
                 if n % self.print_every == 0:
-                    avg_r = np.mean(self.episode_rewards[-self.print_every:])
+                    avg_r  = np.mean(self.episode_rewards[-self.print_every:])
                     avg_sr = np.mean(self.episode_sum_rates[-self.print_every:])
-                    print(
-                        f"Episode {n} | "
-                        f"Avg Reward: {avg_r:.2f} | "
-                        f"Avg Sum-Rate/step: {avg_sr:.4f}"
-                    )
+                    print(f"Episode {n} | Avg Reward: {avg_r:.2f} | "
+                          f"Avg Sum-Rate/step: {avg_sr:.4f}")
         return True
 
 
-def train(agent_type=AGENT_TYPE, env_type=ENV_TYPE, num_episodes=500, show_training=False):
+# ------------------------------------------------------------------ #
+#  TRAIN                                                               #
+# ------------------------------------------------------------------ #
+
+def train(agent_type, env_type, num_episodes):
+
+    # Import correct environment based on selection
+    if env_type == "original":
+        from environments.uav_env import UAVEnv
+    elif env_type == "improved":
+        from environments.uav_env_improved import UAVEnv
+    else:
+        raise ValueError("ENV_TYPE must be 'original' or 'improved'")
 
     results_dir = get_results_dir(agent_type, env_type)
-    print(f"Results will be saved to: {results_dir}")
+    print(f"\nEnvironment : {env_type}")
+    print(f"Agent       : {agent_type}")
+    print(f"Episodes    : {num_episodes}")
+    print(f"Results dir : {results_dir}\n")
 
     # ----------------------------------------------------------------
     # Q-LEARNING
@@ -103,8 +183,8 @@ def train(agent_type=AGENT_TYPE, env_type=ENV_TYPE, num_episodes=500, show_train
 
         print(f"Training Q-Learning agent for {num_episodes} episodes...")
 
-        # num_bins=6 keeps Q-table size manageable for 9-dim improved env
-        # (6^9 = ~10M states vs 12^9 = ~5B states which causes OOM)
+        # num_bins=6 keeps Q-table manageable for 9-dim improved env
+        # (6^9 = ~10M states vs 12^9 = ~5B which causes OOM)
         num_bins = 6 if env_type == "improved" else 12
 
         agent = QLearningAgent(
@@ -117,16 +197,16 @@ def train(agent_type=AGENT_TYPE, env_type=ENV_TYPE, num_episodes=500, show_train
             exploration_decay=0.995
         )
 
-        episode_rewards = []
+        episode_rewards   = []
         episode_sum_rates = []
 
         for episode in range(num_episodes):
             state, _ = env.reset()
-            total_reward = 0
+            total_reward   = 0
             total_sum_rate = 0
-            steps = 0
-            terminated = False
-            truncated = False
+            steps          = 0
+            terminated     = False
+            truncated      = False
 
             while not (terminated or truncated):
                 action = agent.choose_action(state, training=True)
@@ -136,23 +216,21 @@ def train(agent_type=AGENT_TYPE, env_type=ENV_TYPE, num_episodes=500, show_train
                 if "sum_rate" in info:
                     total_sum_rate += info["sum_rate"]
 
-                state = next_state
+                state         = next_state
                 total_reward += reward
-                steps += 1
+                steps        += 1
 
             agent.decay()
             episode_rewards.append(total_reward)
             episode_sum_rates.append(total_sum_rate / max(1, steps))
 
             if (episode + 1) % 100 == 0:
-                avg_reward = np.mean(episode_rewards[-100:])
+                avg_reward   = np.mean(episode_rewards[-100:])
                 avg_sum_rate = np.mean(episode_sum_rates[-100:])
-                print(
-                    f"Episode {episode+1}/{num_episodes} | "
-                    f"Avg Reward (last 100): {avg_reward:.2f} | "
-                    f"Avg Sum-Rate/step: {avg_sum_rate:.4f} | "
-                    f"epsilon={agent.epsilon:.3f}"
-                )
+                print(f"Episode {episode+1}/{num_episodes} | "
+                      f"Avg Reward (last 100): {avg_reward:.2f} | "
+                      f"Avg Sum-Rate/step: {avg_sum_rate:.4f} | "
+                      f"epsilon={agent.epsilon:.3f}")
 
         env.close()
 
@@ -161,11 +239,7 @@ def train(agent_type=AGENT_TYPE, env_type=ENV_TYPE, num_episodes=500, show_train
         print(f"Saved Q-Learning agent to {model_path}.npz")
 
         history_path = os.path.join(results_dir, "training_history_qlearning.npz")
-        np.savez(
-            history_path,
-            sum_rates=episode_sum_rates,
-            rewards=episode_rewards
-        )
+        np.savez(history_path, sum_rates=episode_sum_rates, rewards=episode_rewards)
         print(f"Saved training history to {history_path}")
         return agent
 
@@ -174,7 +248,6 @@ def train(agent_type=AGENT_TYPE, env_type=ENV_TYPE, num_episodes=500, show_train
     # ================================================================
     else:
         # DQN gets a larger timestep budget to compensate for n_envs=1
-        # SAC/PPO/A2C use 8 parallel envs so their effective experience is already higher
         if agent_type == "DQN":
             num_timesteps = num_episodes * 50 * 8
         else:
@@ -245,7 +318,6 @@ def train(agent_type=AGENT_TYPE, env_type=ENV_TYPE, num_episodes=500, show_train
               f"({num_timesteps} timesteps, {n_envs} parallel envs)...")
 
         model.learn(total_timesteps=num_timesteps, callback=callback)
-
         env.close()
 
         model_path = os.path.join(results_dir, f"trained_{agent_type.lower()}")
@@ -259,9 +331,13 @@ def train(agent_type=AGENT_TYPE, env_type=ENV_TYPE, num_episodes=500, show_train
             rewards=np.array(callback.episode_rewards)
         )
         print(f"Saved training history to {history_path}")
-
         return model
 
 
+# ------------------------------------------------------------------ #
+#  ENTRY POINT                                                         #
+# ------------------------------------------------------------------ #
+
 if __name__ == "__main__":
-    train(AGENT_TYPE, ENV_TYPE, num_episodes=2000)
+    env_type, agent_type, num_episodes = show_selection_dialog()
+    train(agent_type, env_type, num_episodes)
