@@ -75,7 +75,7 @@ uav_reinforcement_learning/
 │   │   ├── ppo_results/
 │   │   ├── sac_results/
 │   │   └── a2c_results/
-│   └── improved_env/            # Trained models for improved env (produced upon training)
+│   └── improved_env/            # Trained models for improved env (produced upon testing)
 │       ├── qlearning_results/
 │       ├── dqn_results/
 │       ├── ppo_results/
