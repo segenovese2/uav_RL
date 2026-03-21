@@ -8,7 +8,7 @@ class QLearningAgent:
         self,
         observation_space,
         action_space,
-        num_bins=12,
+        num_bins=6,
         learning_rate=0.1,
         discount_factor=0.95,
         exploration_rate=1.0,
@@ -57,13 +57,15 @@ class QLearningAgent:
             raise ValueError("Unsupported observation space type.")
 
         # Create Q-table
-        self.q_table = np.zeros((self.state_size, self.action_size))
+        self.q_table = np.ones((self.state_size, self.action_size)) * 5.0
 
     # ------------------------------------------------------------------
     # State Discretization
     # ------------------------------------------------------------------
     def _discretize_state(self, state):
         if self.state_type == "discrete":
+            if hasattr(state, 'item'):
+                return int(state.item())
             return int(state)
 
         # Continuous → bucketize each dimension
