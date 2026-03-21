@@ -1,136 +1,222 @@
 # UAV Reinforcement Learning
+### Trajectory Optimisation for Autonomous Flying Base Station via Reinforcement Learning
+
+---
+
+## Overview
+
+This project implements and extends the reinforcement learning framework presented in:
+
+> H. Bayerlein, P. De Kerret and D. Gesbert, "Trajectory Optimization for Autonomous Flying
 
 A reinforcement learning framework for optimizing autonomous UAV trajectories using multiple algorithms. Implements Q-Learning, DQN, PPO, SAC, and A2C agents trained on a custom 15x15 grid environment with communication constraints.
 
+The project provides two environments:
+
+**Original Environment (`uav_env.py`)**
+A faithful reimplementation of the paper's environment. The reward signal is the minimum
+rate across both users (min(r1, r2)), which naturally guides agents toward the equidistant
+midpoint between users rather than clustering near a single user. A safety return system
+overrides the agent's action when the remaining flight time equals the Manhattan distance
+to the start position, forcing the UAV home and applying a penalty for each forced step.
+This matches the paper's described safety mechanism.
+
+**Improved Environment (`uav_env_improved.py`)**
+An extended version using three-phase navigation structure:
+  - Phase 0: Navigate from start to the midpoint between users
+  - Phase 1: Dwell at the midpoint, leaving only when the step budget requires return
+  - Phase 2: Return to start
+
+Additional reward shaping guides the agent through each phase. The observation space
+is extended from 5 to 9 dimensions, adding target coordinates, phase indicator, and
+steps-remaining ratio so agents can condition their behaviour on mission phase and
+time budget.
+
+Five RL algorithms are compared across both environments:
+Q-Learning, DQN, PPO, SAC, and A2C.
+
+---
+
 ## Project Structure
+
+```
 uav_reinforcement_learning/
 ├── agents/
-│   ├── q_learning_agent.py      # Q-Learning agent
-│   ├── init.py
-│   └── wrappers.py              # Action space wrappers (SAC)
+│   ├── q_learning_agent.py      # Tabular Q-Learning agent with discretisation
+│   ├── wrappers.py              # ContinuousToDiscreteWrapper for SAC
+│   └── __init__.py
 ├── environments/
-│   ├── uav_env_improved.py      # Improved custom environment
-│   └── uav_env.py               # Custom UAV environment (Gym-compatible)
-├── agent_train.py               # Training script (trains agents)
-├── agent_testy                  # Testing script (tests agents)
-├── plot_results.py              # Plot training learning curves
-├── requirements.txt             # All libraries needed
+│   ├── uav_env.py               # Original environment (Bayerlein et al. replication)
+│   └── uav_env_improved.py      # Improved environment with 3-phase navigation
+├── Results/
+│   ├── original_env/            # Trained models and histories for original env
+│   │   ├── qlearning_results/
+│   │   ├── dqn_results/
+│   │   ├── ppo_results/
+│   │   ├── sac_results/
+│   │   └── a2c_results/
+│   └── improved_env/            # Trained models and histories for improved env
+│       ├── qlearning_results/
+│       ├── dqn_results/
+│       ├── ppo_results/
+│       ├── sac_results/
+│       └── a2c_results/
+├── agent_train.py               # Training script with GUI environment/agent selection
+├── agent_test.py                # Testing script with trajectory visualisation and plot
+├── plot_results.py              # Plot training learning curves with GUI selection
+├── requirements.txt             # Python dependencies
 └── README.txt                   # This file
+```
+
+---
 
 ## Installation
 
 ### Requirements
 - Python 3.8+
 - PyTorch
-- Gymnasium (formerly OpenAI Gym)
+- Gymnasium
 - Stable-Baselines3
 - NumPy
 - Matplotlib
-- Pygame (for visualization)
+- Pygame
 
 ### Setup
 ```bash
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+source venv/bin/activate        # Linux/Mac
+venv\Scripts\activate           # Windows
 
 # Install dependencies
-pip install torch gymnasium stable-baselines3 numpy matplotlib pygame
+pip install torch gymnasium stable-baselines3 numpy matplotlib pygame shapely
 ```
+
+---
 
 ## Usage
 
 ### 1. Training an Agent
 
-Run training script:
 ```bash
-python test_train.py
+python agent_train.py
 ```
-Window will appear, select the environment and RL model
 
-Training outputs:
-- `training_history_{agent}.npz` - Episode rewards and sum-rates
-- `trained_{agent}.zip`          - Model weights (SB3 agents)
-- `trained_q_learning.npy`       - Q-table (Q-Learning only)
+A GUI window will appear. Select the environment, agent type, and number of
+training episodes, then click Start Training.
 
-By default, training runs for 30,000 episodes. You can change this by editing the
-number in the text box after running `test_train.py`:
+Training saves to `Results/{env}_env/{agent}_results/`:
+- `training_history_{agent}.npz` -- episode rewards and sum-rates for plotting
+- `trained_{agent}.zip`          -- model weights (SB3 agents: DQN, PPO, SAC, A2C)
+- `trained_q_learning.npz`       -- Q-table (Q-Learning only)
+
+Recommended episode counts:
+- Q-Learning (original env):  800,000  (tabular convergence is slow by design)
+- Q-Learning (improved env):  100,000
+- DQN:                         50,000
+- PPO / A2C / SAC:             30,000
 
 ### 2. Testing a Trained Agent
 
-Run testing script:
 ```bash
 python agent_test.py
 ```
 
-The agent will run one episode with visualization showing the UAV trajectory.
+A GUI window will appear. Select the environment, agent, and whether to show
+per-step diagnostics. The agent runs one episode with a live Pygame visualisation,
+then saves a trajectory plot PNG to the project directory.
+
+The trajectory plot shows the full path taken, direction arrows, obstacle and NLOS
+shading, user positions, midpoint marker (improved env), and start/end markers.
 
 ### 3. Plotting Learning Curves
 
-Run plotting script:
 ```bash
 python plot_results.py
 ```
-Select the agent(s) you want to plot
-This loads the corresponding `training_history_{agent}.npz` files and generates
-`training_learning_curves.png` with smoothed learning curves and a summary table.
+
+A GUI window will appear. Select the environment and tick whichever agents to
+include. The script loads the corresponding `.npz` history files and generates
+a smoothed learning curve plot saved as
+`training_learning_curves_{env}.png`.
+
+---
 
 ## Environment Details
 
-### UAV Environment (`environments/uav_env.py`)
+### Original Environment (`uav_env.py`)
 
-Grid: 15x15 continuous space
-Agents: 2 stationary users at fixed positions
-UAV Task:
-- Visit midpoint between users (balanced signal)
-- Return to start within 50 steps
-- Maximize communication quality
+| Parameter         | Value                        |
+|-------------------|------------------------------|
+| Grid size         | 15 x 15                      |
+| Users             | [4, 12] and [12, 8]          |
+| Obstacle          | 2x4 block at [9-10, 3-6]     |
+| Flight time       | 50 steps                     |
+| Start / landing   | [0, 0]                       |
+| Reward            | min(r1, r2) per step         |
+| Obstacle penalty  | -5.0                         |
+| Safety system     | Forces return when steps remaining <= Manhattan distance to start |
+| Safety penalty    | -abs(reward) per forced step |
+| Observation dims  | 5                            |
+| Action space      | Discrete(4): up/down/left/right |
 
-Reward Structure:
-- Base:     Sum-rate (log of signal-to-noise ratio)
-- Penalties:
-    - NLOS (no line-of-sight): -0.5 to -1.0
-    - Step penalty:            -0.01
-    - On user position:        -5.0
-- Bonuses:
-    - Proximity to midpoint:   +2.0
-    - Visiting midpoint:       +5.0
-    - Midpoint + return:       +20.0
+### Improved Environment (`uav_env_improved.py`)
 
-Observation Space:
-- UAV position (x, y)
-- User 1 position and LOS status
-- User 2 position and LOS status
-- Distance to midpoint
-- Step counter
+Inherits all channel model parameters from the original environment and adds:
 
-Action Space: 9 discrete actions (8 cardinal directions + stay)
+| Addition                  | Detail                                              |
+|---------------------------|-----------------------------------------------------|
+| Midpoint                  | Computed from user positions: [8.0, 10.0]           |
+| Phase 0 shaping           | Progress reward toward midpoint (scale 2.0/step)    |
+| Midpoint arrival bonus    | +25.0 one-time                                      |
+| Phase 1 dwell             | +1.0/step while within radius; must_leave enforced  |
+| Phase 2 shaping           | Progress reward toward start (scale 15.0/step)      |
+| Return bonus              | +100.0 on reaching start                            |
+| Phase 0 failure penalty   | -200.0 if midpoint never reached                    |
+| Phase 1 failure penalty   | -50.0 if dwell phase not completed                  |
+| Observation dims          | 9 (adds target x/y, phase flag, steps remaining)    |
+
+---
 
 ## Agent Details
 
-| Agent      | Type           | Parallel Envs | Best For             |
-|------------|----------------|---------------|----------------------|
-| Q-Learning | Tabular        | 1             | Small state spaces   |
-| DQN        | Deep RL        | 1             | Continuous states    |
-| PPO        | Policy Gradient| 8             | Complex tasks        |
-| SAC        | Off-Policy     | 1             | Sample efficiency    |
-| A2C        | Actor-Critic   | 8             | Stable learning      |
+| Agent      | Type            | Parallel Envs | Notes                                        |
+|------------|-----------------|---------------|----------------------------------------------|
+| Q-Learning | Tabular         | 1             | Uses GridStateWrapper on original env to match paper's (x,y,t) state space |
+| DQN        | Deep Q-Network  | 1             | Off-policy, replay buffer                    |
+| PPO        | Policy Gradient | 8             | On-policy, parallel envs reduce variance     |
+| SAC        | Actor-Critic    | 8             | Continuous action wrapped to discrete        |
+| A2C        | Actor-Critic    | 8             | Synchronous advantage estimation             |
 
-Note: A2C and PPO use 8 parallel environments by default to reduce variance.
-SAC uses a ContinuousToDiscreteWrapper (see `wrappers.py`) to bridge its
-continuous action output to the environment's discrete action space.
+### Q-Learning State Space Note
+
+On the original environment, Q-Learning uses a `GridStateWrapper` that converts
+the continuous observation to a direct `(x, y, t)` grid state index, giving
+`15 * 15 * 50 = 11,250` states. This matches the paper's tabular implementation
+exactly and allows full convergence. Without this wrapper the continuous observation
+discretisation produces ~248,832 states which is too large to explore within a
+practical number of episodes.
+
+On the improved environment, Q-Learning uses the standard continuous observation
+discretisation with `num_bins=6`, giving `6^9 ≈ 10M` states.
+
+---
 
 ## Hyperparameters
 
 ### Q-Learning
-- learning_rate:    0.1
-- discount_factor:  0.95
-- epsilon_decay:    0.995
+- learning_rate:      0.3   (paper value)
+- discount_factor:    0.99  (paper value)
+- epsilon_decay:      0.9999 (slow -- needed for 800k episode convergence)
+- num_bins (improved): 6
 
 ### DQN
-- learning_rate:         1e-3
-- exploration_fraction:  0.3
+- learning_rate:         5e-4
+- exploration_fraction:  0.5
 - exploration_final_eps: 0.05
+- buffer_size:           100,000
+- gamma:                 0.99
+- batch_size:            64
 
 ### PPO
 - learning_rate:        3e-4
@@ -140,9 +226,9 @@ continuous action output to the environment's discrete action space.
 - normalize_advantage:  True
 
 ### SAC
-- learning_rate:           3e-4
-- buffer_size:             10000
-- batch_size:              256
+- learning_rate:           1e-3
+- buffer_size:             50,000
+- batch_size:              128
 - ent_coef:                auto
 - target_update_interval:  1
 
@@ -153,60 +239,17 @@ continuous action output to the environment's discrete action space.
 - normalize_advantage: True
 - gamma:               0.95
 
+---
+
 ## Troubleshooting
 
-### Agent not learning / stuck in place
-- Q-Learning: Increase epsilon (exploration rate)
-- DQN:        Reduce exploration_fraction decay, increase buffer_size
-- PPO/A2C:    Increase ent_coef
-- SAC:        Check ent_coef is set to 'auto' or increase manually
+### Out of memory (Q-Learning)
+- On the improved env, reduce num_bins (default 6). Do not increase above 7.
 
-### Out of memory
-- Reduce buffer_size (DQN/SAC)
-- Reduce batch_size
-- Reduce n_envs in test_train.py
-
-### Training too slow
-- Reduce num_episodes for a quick test run
-- DQN or SAC typically converge faster than PPO
-
-## Key Files Explained
-
-### `test_train.py`
-Main training script. Handles agent initialisation, the episode loop, model
-saving, and logging via TrackingCallback (for SB3 agents) or a manual loop
-(for Q-Learning).
-
-### `agent_test.py`
-Loads a trained model and runs a single visualised episode. Works with all
-agent types including Q-Learning.
-
-### `plot_results.py`
-Loads `training_history_{agent}.npz` files and plots smoothed learning curves
-(average sum-rate per step). Prints a summary table showing first/last 100
-episode averages and total improvement.
-
-### `wrappers.py`
-Contains ContinuousToDiscreteWrapper, which wraps the discrete UAV environment
-with a continuous Box action space so SAC can be used. Actions are converted
-back to discrete by taking the argmax of SAC's output.
-
-### `environments/uav_env.py`
-Custom Gym-compatible environment with pathloss modelling, Rayleigh fading,
-LOS/NLOS propagation, obstacle detection, and reward computation.
-
-### `environments/uav_env_improved.py`
-Environment based on uav_env, but with more complex rewards structure and
-model guidance.
+---
 
 ## References
 
-uav_env Reward model based on:
+Environment and reward model based on:
 - Bayerlein et al. (2018): UAV trajectory optimisation via reinforcement learning
-
-Algorithms:
-- Q-Learning
-- DQN
-- PPO
-- SAC
-- A2C
+- Supervisor reference implementation: https://github.com/cfoh/UAV-Trajectory-Optimization
