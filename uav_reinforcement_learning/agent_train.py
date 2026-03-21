@@ -9,8 +9,48 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from stable_baselines3 import DQN, PPO, SAC, A2C
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
+from gymnasium import spaces
 from agents.q_learning_agent import QLearningAgent
 from agents.wrappers import ContinuousToDiscreteWrapper
+
+
+# ------------------------------------------------------------------ #
+#  GRID STATE WRAPPER                                                  #
+# ------------------------------------------------------------------ #
+
+class GridStateWrapper:
+    """
+    Wraps UAVEnv to give Q-learning the direct grid position + time
+    as state, exactly matching the paper's Q-table implementation.
+
+    State space: x * COLS * T + y * T + t = 15 * 15 * 50 = 11,250 states
+    This is tiny compared to the continuous discretised approach and
+    allows the Q-table to fully converge within a reasonable number
+    of episodes, consistent with the original paper.
+
+    Only used for Q-learning on the original environment.
+    """
+    def __init__(self, env):
+        self.env = env
+        self.observation_space = spaces.Discrete(15 * 15 * 50)
+        self.action_space      = env.action_space
+
+    def reset(self, **kwargs):
+        self.env.reset(**kwargs)
+        return self._get_state(), {}
+
+    def step(self, action):
+        _, reward, terminated, truncated, info = self.env.step(action)
+        return self._get_state(), reward, terminated, truncated, info
+
+    def _get_state(self):
+        x = int(self.env.current_pos[0])
+        y = int(self.env.current_pos[1])
+        t = min(int(self.env.steps), 49)
+        return x * 15 * 50 + y * 50 + t
+
+    def close(self):
+        self.env.close()
 
 
 # ------------------------------------------------------------------ #
@@ -28,7 +68,6 @@ def show_selection_dialog():
     root.title("UAV Training Setup")
     root.resizable(False, False)
 
-    # Centre the window
     root.update_idletasks()
     w, h = 340, 240
     x = (root.winfo_screenwidth() // 2) - (w // 2)
@@ -70,8 +109,8 @@ def show_selection_dialog():
         except ValueError:
             messagebox.showerror("Invalid Input", "Episodes must be a positive integer.")
             return
-        result["env_type"]    = env_var.get()
-        result["agent_type"]  = agent_var.get()
+        result["env_type"]     = env_var.get()
+        result["agent_type"]   = agent_var.get()
         result["num_episodes"] = episodes
         root.destroy()
 
@@ -116,7 +155,7 @@ class TrackingCallback(BaseCallback):
         self.n_envs = n_envs
         self.print_every = print_every
 
-        self.episode_rewards  = []
+        self.episode_rewards   = []
         self.episode_sum_rates = []
 
         self._current_reward   = np.zeros(n_envs)
@@ -174,27 +213,38 @@ def train(agent_type, env_type, num_episodes):
     print(f"Episodes    : {num_episodes}")
     print(f"Results dir : {results_dir}\n")
 
-    # ----------------------------------------------------------------
-    # Q-LEARNING
-    # ----------------------------------------------------------------
+# ------------------------------------------------------------------ #
+#  Q-LEARNING                                                          #
+# ------------------------------------------------------------------ #
     if agent_type == "QLEARNING":
-        env = UAVEnv(grid_size=15, render_mode=None)
+        base_env = UAVEnv(grid_size=15, render_mode=None)
+
+        # For original env use GridStateWrapper to match the paper's
+        # direct (x, y, t) state space -- 11,250 states vs 248,832
+        # for the continuous discretised approach. This is what allows
+        # Q-learning to fully converge as shown in the paper.
+        # For improved env use continuous observation as before.
+        if env_type == "original":
+            env = GridStateWrapper(base_env)
+        else:
+            env = base_env
+
         env.reset()
 
         print(f"Training Q-Learning agent for {num_episodes} episodes...")
 
-        # num_bins=6 keeps Q-table manageable for 9-dim improved env
-        # (6^9 = ~10M states vs 12^9 = ~5B which causes OOM)
+        # num_bins only relevant for improved env (continuous observation)
+        # original env uses GridStateWrapper (Discrete space, no binning needed)
         num_bins = 6 if env_type == "improved" else 12
 
         agent = QLearningAgent(
             observation_space=env.observation_space,
             action_space=env.action_space,
             num_bins=num_bins,
-            learning_rate=0.1,
-            discount_factor=0.95,
+            learning_rate=0.3,
+            discount_factor=0.99,
             exploration_rate=1.0,
-            exploration_decay=0.995
+            exploration_decay=0.9999   # slow decay -- paper needed 800k episodes
         )
 
         episode_rewards   = []
@@ -232,7 +282,7 @@ def train(agent_type, env_type, num_episodes):
                       f"Avg Sum-Rate/step: {avg_sum_rate:.4f} | "
                       f"epsilon={agent.epsilon:.3f}")
 
-        env.close()
+        base_env.close()
 
         model_path = os.path.join(results_dir, "trained_q_learning")
         agent.save(model_path)
@@ -243,9 +293,9 @@ def train(agent_type, env_type, num_episodes):
         print(f"Saved training history to {history_path}")
         return agent
 
-    # ================================================================
-    # SB3 AGENTS
-    # ================================================================
+# ------------------------------------------------------------------ #
+#  SB3 AGENTS                                                          #
+# ------------------------------------------------------------------ #
     else:
         num_timesteps = num_episodes * 50
 
@@ -264,8 +314,8 @@ def train(agent_type, env_type, num_episodes):
                 "MlpPolicy", env,
                 verbose=0,
                 learning_rate=5e-4,
-                exploration_fraction=0.7,
-                exploration_final_eps=0.1,
+                exploration_fraction=0.5,
+                exploration_final_eps=0.05,
                 buffer_size=100000,
                 learning_starts=5000,
                 gamma=0.99,
@@ -335,5 +385,15 @@ def train(agent_type, env_type, num_episodes):
 # ------------------------------------------------------------------ #
 
 if __name__ == "__main__":
-    env_type, agent_type, num_episodes = show_selection_dialog()
-    train(agent_type, env_type, num_episodes)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--env",      type=str, default=None)
+    parser.add_argument("--agent",    type=str, default=None)
+    parser.add_argument("--episodes", type=int, default=None)
+    args = parser.parse_args()
+
+    if args.env and args.agent and args.episodes:
+        train(args.agent, args.env, args.episodes)
+    else:
+        env_type, agent_type, num_episodes = show_selection_dialog()
+        train(agent_type, env_type, num_episodes)
