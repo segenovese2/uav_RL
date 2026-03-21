@@ -10,6 +10,26 @@ This project implements and extends the reinforcement learning framework present
 > H. Bayerlein, P. De Kerret and D. Gesbert, "Trajectory Optimization for Autonomous Flying Base Station via Reinforcement Learning"
 
 A reinforcement learning framework for optimizing autonomous UAV trajectories using multiple algorithms. Implements Q-Learning, DQN, PPO, SAC, and A2C agents trained on a custom 15x15 grid environment with communication constraints.
+This project explores whether reinforcement learning can teach a UAV to autonomously
+navigate an environment, find the best position to serve multiple ground users, and 
+return home within a fixed time budget without being explitly told where to go.
+
+The setup is a 15x15 grid world with two stationary users, an obstacle block that
+creates signal shadows, and a UAV that starts at the bottom-left corner with 50 steps
+to complete its task. The UAV learns purely from the reward signal - better
+communication quality means higher reward, flying into obstacles or failing to return
+means penalties.
+
+Two environments are compared. The original replicates the baseline from Bayerlein
+et al. (2018), where the reward is the minimum rate across both users, naturally drawing
+the UAV toward the equidistant midpoint. The improved environment adds explicit navigation
+structure, guiding the agent through three phases:reaching the midpoint, dwelling there 
+to maximise communication quality, then returning home before time runs out.
+
+Five algorithms are tested across both environments - Q-Learning, DQN, PPO, SAC, and
+A2C - to compare how different learning approaches handle the same task, and whether
+the additional structure in the improved environment leads to faster, more consistent
+learning.
 
 The project provides two environments:
 
