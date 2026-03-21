@@ -1,5 +1,5 @@
 # UAV Reinforcement Learning
-### Trajectory Optimisation for Autonomous Flying Base Station via Reinforcement Learning
+### UAV Trajectory Optimisation Using Reinforcement Learning
 
 ---
 
