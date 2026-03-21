@@ -7,7 +7,7 @@
 
 This project implements and extends the reinforcement learning framework presented in:
 
-> H. Bayerlein, P. De Kerret and D. Gesbert, "Trajectory Optimization for Autonomous Flying
+> H. Bayerlein, P. De Kerret and D. Gesbert, "Trajectory Optimization for Autonomous Flying Base Station via Reinforcement Learning"
 
 A reinforcement learning framework for optimizing autonomous UAV trajectories using multiple algorithms. Implements Q-Learning, DQN, PPO, SAC, and A2C agents trained on a custom 15x15 grid environment with communication constraints.
 
