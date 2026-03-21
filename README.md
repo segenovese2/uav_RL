@@ -69,13 +69,13 @@ uav_reinforcement_learning/
 │   ├── uav_env.py               # Original environment (Bayerlein et al. replication)
 │   └── uav_env_improved.py      # Improved environment with 3-phase navigation
 ├── Results/
-│   ├── original_env/            # Trained models and histories for original env (produced upon training)
+│   ├── original_env/            # Trained models for original env (produced upon training)
 │   │   ├── qlearning_results/
 │   │   ├── dqn_results/
 │   │   ├── ppo_results/
 │   │   ├── sac_results/
 │   │   └── a2c_results/
-│   └── improved_env/            # Trained models and histories for improved env (produced upon training)
+│   └── improved_env/            # Trained models for improved env (produced upon training)
 │       ├── qlearning_results/
 │       ├── dqn_results/
 │       ├── ppo_results/
