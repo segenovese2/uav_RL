@@ -14,7 +14,7 @@ A reinforcement learning framework for optimizing autonomous UAV trajectories us
 The project provides two environments:
 
 **Original Environment (`uav_env.py`)**
-A faithful reimplementation of the paper's environment. The reward signal is the minimum
+A recreation of the paper's environment. The reward signal is the minimum
 rate across both users (min(r1, r2)), which naturally guides agents toward the equidistant
 midpoint between users rather than clustering near a single user. A safety return system
 overrides the agent's action when the remaining flight time equals the Manhattan distance
