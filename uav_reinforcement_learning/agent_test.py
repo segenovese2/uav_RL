@@ -4,12 +4,78 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import time
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from stable_baselines3 import DQN, PPO, SAC, A2C
+from gymnasium import spaces
 from agents.q_learning_agent import QLearningAgent
 from agents.wrappers import ContinuousToDiscreteWrapper
+
+
+# ------------------------------------------------------------------ #
+#  GRID STATE WRAPPER (mirrors agent_train.py -- used for Q-learning) #
+# ------------------------------------------------------------------ #
+
+class GridStateWrapper:
+    def __init__(self, env):
+        self.env = env
+        self.observation_space = spaces.Discrete(15 * 15 * 50)
+        self.action_space      = env.action_space
+
+    def reset(self, **kwargs):
+        self.env.reset(**kwargs)
+        return self._get_state(), {}
+
+    def step(self, action):
+        _, reward, terminated, truncated, info = self.env.step(action)
+        return self._get_state(), reward, terminated, truncated, info
+
+    def _get_state(self):
+        x = int(self.env.current_pos[0])
+        y = int(self.env.current_pos[1])
+        t = min(int(self.env.steps), 49)
+        return x * 15 * 50 + y * 50 + t
+
+    def close(self):
+        self.env.close()
+
+    @property
+    def current_pos(self):
+        return self.env.current_pos
+
+    @property
+    def trajectory(self):
+        return self.env.trajectory
+
+    @property
+    def nlos_both(self):
+        return self.env.nlos_both
+
+    @property
+    def nlos_single(self):
+        return self.env.nlos_single
+
+    @property
+    def obstacles(self):
+        return self.env.obstacles
+
+    @property
+    def users(self):
+        return self.env.users
+
+    @property
+    def start_pos(self):
+        return self.env.start_pos
+
+    @property
+    def grid_size(self):
+        return self.env.grid_size
+
+    def render(self):
+        return self.env.render()
 
 
 # ------------------------------------------------------------------ #
@@ -82,6 +148,77 @@ def show_selection_dialog():
 
 
 # ------------------------------------------------------------------ #
+#  TRAJECTORY PLOT                                                     #
+# ------------------------------------------------------------------ #
+
+def save_trajectory_plot(env, agent_type, env_type):
+    gs  = env.grid_size
+    fig, ax = plt.subplots(figsize=(7, 7))
+
+    # NLOS shading
+    for cell in env.nlos_both:
+        ax.add_patch(patches.Rectangle((cell[0], cell[1]), 1, 1,
+                                        color='#787878', zorder=1))
+    for cell in env.nlos_single:
+        ax.add_patch(patches.Rectangle((cell[0], cell[1]), 1, 1,
+                                        color='#b4b4b4', zorder=1))
+
+    # Obstacles
+    for obs in env.obstacles:
+        ax.add_patch(patches.Rectangle((obs[0], obs[1]), 1, 1,
+                                        color='#505050', zorder=2))
+
+    # Midpoint (improved env only)
+    if env_type == "improved":
+        ax.plot(env.midpoint[0], env.midpoint[1], 'g^',
+                markersize=10, zorder=5, label='Midpoint')
+
+    # Users
+    for i, user in enumerate(env.users):
+        ax.plot(user[0] + 0.5, user[1] + 0.5, 'bo', markersize=12, zorder=5)
+        ax.text(user[0] + 0.5, user[1] + 0.5, 'UE', color='white',
+                ha='center', va='center', fontsize=7, fontweight='bold', zorder=6)
+
+    # Trajectory
+    traj = np.array(env.trajectory)
+    ax.plot(traj[:, 0] + 0.5, traj[:, 1] + 0.5,
+            'k-', linewidth=2, zorder=4, label='Path')
+
+    # Direction arrows -- placed every few steps so they don't overlap
+    arrow_interval = max(1, len(traj) // 10)
+    for i in range(0, len(traj) - 1, arrow_interval):
+        x  = traj[i, 0] + 0.5
+        y  = traj[i, 1] + 0.5
+        dx = (traj[i+1, 0] - traj[i, 0]) * 0.4
+        dy = (traj[i+1, 1] - traj[i, 1]) * 0.4
+        if dx != 0 or dy != 0:
+            ax.annotate('', xy=(x + dx, y + dy), xytext=(x, y),
+                        arrowprops=dict(arrowstyle='->', color='red', lw=1.5),
+                        zorder=7)
+
+    # Start and end markers
+    ax.plot(traj[0, 0] + 0.5, traj[0, 1] + 0.5,
+            'rs', markersize=10, zorder=6, label='Start')
+    ax.plot(traj[-1, 0] + 0.5, traj[-1, 1] + 0.5,
+            'r*', markersize=14, zorder=6, label='End')
+
+    ax.set_xlim(0, gs)
+    ax.set_ylim(0, gs)
+    ax.set_xticks(range(gs + 1))
+    ax.set_yticks(range(gs + 1))
+    ax.grid(True, linewidth=0.5, color='#cccccc', zorder=0)
+    ax.set_title(f"Trajectory  --  {agent_type} on {env_type} environment", fontsize=12)
+    ax.legend(loc='upper right')
+    ax.set_aspect('equal')
+
+    filename = f"trajectory_{agent_type}_{env_type}.png"
+    plt.savefig(filename, dpi=150, bbox_inches='tight')
+    plt.show()
+    print(f"Saved trajectory plot to {filename}")
+    plt.close()
+
+
+# ------------------------------------------------------------------ #
 #  HELPERS                                                             #
 # ------------------------------------------------------------------ #
 
@@ -113,9 +250,15 @@ def run_test(env_type, agent_type, show_diagnostics):
 
     # ===== CUSTOM Q-LEARNING =====
     if agent_type == "QLEARNING":
+        # Wrap env for original -- matches GridStateWrapper used in training
+        if env_type == "original":
+            env = GridStateWrapper(env)
+        state, _ = env.reset()
+
         agent = QLearningAgent(
             observation_space=env.observation_space,
-            action_space=env.action_space
+            action_space=env.action_space,
+            num_bins=6 if env_type == "improved" else 12
         )
         model_path = os.path.join(results_dir, "trained_q_learning.npz")
         try:
@@ -156,6 +299,7 @@ def run_test(env_type, agent_type, show_diagnostics):
                     print(f"\nEpisode finished! Steps: {steps} | Reward: {total_reward:.2f}")
                     print(f"Final position   : {env.current_pos}")
                     print(f"Distance to start: {np.linalg.norm(env.current_pos - env.start_pos):.2f}")
+                    save_trajectory_plot(env, agent_type, env_type)
                     break
         except KeyboardInterrupt:
             print("\nTest interrupted.")
@@ -212,6 +356,7 @@ def run_test(env_type, agent_type, show_diagnostics):
                     print(f"\nEpisode finished! Steps: {steps} | Reward: {total_reward:.2f}")
                     print(f"Final position   : {env.current_pos}")
                     print(f"Distance to start: {np.linalg.norm(env.current_pos - env.start_pos):.2f}")
+                    save_trajectory_plot(env, agent_type, env_type)
                     break
         except KeyboardInterrupt:
             print("\nTest interrupted.")
@@ -224,5 +369,16 @@ def run_test(env_type, agent_type, show_diagnostics):
 # ------------------------------------------------------------------ #
 
 if __name__ == "__main__":
-    env_type, agent_type, show_diagnostics = show_selection_dialog()
-    run_test(env_type, agent_type, show_diagnostics)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--env",         type=str, default=None)
+    parser.add_argument("--agent",       type=str, default=None)
+    parser.add_argument("--diagnostics", type=str, default="true")
+    args = parser.parse_args()
+
+    if args.env and args.agent:
+        show_diag = args.diagnostics.lower() != "false"
+        run_test(args.env, args.agent, show_diag)
+    else:
+        env_type, agent_type, show_diagnostics = show_selection_dialog()
+        run_test(env_type, agent_type, show_diagnostics)
