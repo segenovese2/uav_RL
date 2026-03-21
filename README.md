@@ -1,6 +1,4 @@
-# UAV Reinforcement Learning
-### UAV Trajectory Optimisation Using Reinforcement Learning
-
+# UAV Trajectory Optimisation Using Reinforcement Learning
 ---
 
 ## Overview
