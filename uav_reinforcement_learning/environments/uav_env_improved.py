@@ -88,7 +88,7 @@ class UAVEnv(gym.Env):
         self.max_possible_sum_rate = self._compute_max_sum_rate()
 
     # ------------------------------------------------------------------ #
-    #  WORLD GENERATION (unchanged)                                        #
+    #  WORLD GENERATION (unchanged)                                      #
     # ------------------------------------------------------------------ #
     def _create_obstacles(self):
         return [
@@ -138,7 +138,7 @@ class UAVEnv(gym.Env):
         return True
 
     # ------------------------------------------------------------------ #
-    #  RESET / STEP                                                        #
+    #  RESET / STEP                                                      #
     # ------------------------------------------------------------------ #
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -200,7 +200,7 @@ class UAVEnv(gym.Env):
         return self._get_observation(), float(reward), False, truncated, info
 
     # ------------------------------------------------------------------ #
-    #  NAVIGATION SHAPING                                                  #
+    #  NAVIGATION SHAPING                                                #
     # ------------------------------------------------------------------ #
     def _navigation_shaping(self) -> float:
         shaping = 0.0
@@ -255,7 +255,7 @@ class UAVEnv(gym.Env):
         return float(np.linalg.norm(self.current_pos - self.start_pos)) <= self.progress_radius
 
     # ------------------------------------------------------------------ #
-    #  OBSERVATION                                                         #
+    #  OBSERVATION                                                       #
     # ------------------------------------------------------------------ #
     def _get_observation(self):
         uav_x = self.current_pos[0] / (self.grid_size - 1)
@@ -288,7 +288,7 @@ class UAVEnv(gym.Env):
         )
 
     # ------------------------------------------------------------------ #
-    #  COMMS REWARD (unchanged from original)                              #
+    #  COMMS REWARD (unchanged from original)                            #
     # ------------------------------------------------------------------ #
     def _calculate_reward(self):
         pos = self.current_pos
@@ -321,7 +321,7 @@ class UAVEnv(gym.Env):
             return 0.0
 
     # ------------------------------------------------------------------ #
-    #  COMM QUALITY HELPERS (unchanged)                                    #
+    #  COMM QUALITY HELPERS (unchanged)                                  #
     # ------------------------------------------------------------------ #
     def _compute_sum_rate_at_pos(self, pos, deterministic=True):
         sum_rate = 0.0
@@ -348,7 +348,7 @@ class UAVEnv(gym.Env):
         return float(min(1.0, self._compute_sum_rate_at_pos(self.current_pos) / self.max_possible_sum_rate))
 
     # ------------------------------------------------------------------ #
-    #  RENDERING                                                           #
+    #  RENDERING                                                         #
     # ------------------------------------------------------------------ #
     def _init_pygame(self):
         pygame.init()
